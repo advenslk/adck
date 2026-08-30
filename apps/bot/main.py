@@ -3,7 +3,7 @@ import httpx
 import discord
 from discord import app_commands
 from apps.core.config import settings
-from apps.bot.ui import HostingView, PlanSelectView
+from apps.bot.ui import HostingView, PlanSelectView, ServerManageView
 
 logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
 log = logging.getLogger("arvex.bot")
@@ -63,12 +63,7 @@ class ArveXBot(discord.Client):
 
     async def internal_post(self, path: str, json=None, params=None):
         async with httpx.AsyncClient(timeout=15) as client:
-            response = await client.post(
-                f"{settings.public_api_url}{path}",
-                headers={"X-Internal-Secret": settings.internal_api_secret},
-                json=json,
-                params=params,
-            )
+            response = await client.post(f"{settings.public_api_url}{path}", headers={"X-Internal-Secret": settings.internal_api_secret}, json=json, params=params)
             response.raise_for_status()
             return response.json()
 
@@ -99,6 +94,8 @@ class ArveXBot(discord.Client):
         await interaction.response.send_message(view=PlanSelectView(interaction.user.id, plans), ephemeral=True)
 
     async def send_servers(self, interaction: discord.Interaction):
+        if interaction.response.is_done():
+            return
         async with httpx.AsyncClient(timeout=15) as client:
             response = await client.get(f"{settings.public_api_url}/api/v1/servers", headers={"X-Discord-Id": str(interaction.user.id)})
         if not response.is_success:
@@ -106,15 +103,9 @@ class ArveXBot(discord.Client):
             return
         servers = response.json()
         if not servers:
-            text = "# 🖥️ My Servers\nYou don't have any servers yet."
-        else:
-            lines = ["# 🖥️ My Servers"]
-            for server in servers[:20]:
-                lines.append(f"**{server['name']}** — `{server['status']}` · `{server['kind']}` · `{server['id']}`")
-            text = "\n".join(lines)
-        view = discord.ui.LayoutView(timeout=120)
-        view.add_item(discord.ui.Container(discord.ui.TextDisplay(text), accent_color=0x7C3AED))
-        await interaction.response.send_message(view=view, ephemeral=True)
+            await interaction.response.send_message("You don't have any servers yet. Use `/invites` to view plans.", ephemeral=True)
+            return
+        await interaction.response.send_message(view=ServerManageView(interaction.user.id, servers), ephemeral=True)
 
 
 bot = ArveXBot()
@@ -140,11 +131,7 @@ async def servers(interaction: discord.Interaction):
 async def ai(interaction: discord.Interaction, message: str):
     await interaction.response.defer(ephemeral=True)
     async with httpx.AsyncClient(timeout=40) as client:
-        response = await client.post(
-            f"{settings.public_api_url}/api/v1/ai",
-            headers={"X-Discord-Id": str(interaction.user.id)},
-            json={"message": message},
-        )
+        response = await client.post(f"{settings.public_api_url}/api/v1/ai", headers={"X-Discord-Id": str(interaction.user.id)}, json={"message": message})
     answer = response.json().get("response", "No response") if response.is_success else "AI service is currently unavailable."
     await interaction.followup.send(answer[:4000], ephemeral=True)
 
@@ -158,11 +145,7 @@ async def admin(interaction: discord.Interaction):
         response = await client.get(f"{settings.public_api_url}/api/v1/admin/overview", headers={"X-Discord-Id": str(interaction.user.id)})
     data = response.json() if response.is_success else {}
     view = discord.ui.LayoutView(timeout=120)
-    view.add_item(discord.ui.Container(
-        discord.ui.TextDisplay(
-            f"# 🛡️ ArveX Admin\n\n**Users:** {data.get('users', 0)}\n**Servers:** {data.get('servers', 0)}\n**Plans:** {data.get('plans', 0)}\n**Active Deployments:** {data.get('active_deployments', 0)}"
-        ), accent_color=0x7C3AED
-    ))
+    view.add_item(discord.ui.Container(discord.ui.TextDisplay(f"# 🛡️ ArveX Admin\n\n**Users:** {data.get('users', 0)}\n**Servers:** {data.get('servers', 0)}\n**Plans:** {data.get('plans', 0)}\n**Active Deployments:** {data.get('active_deployments', 0)}"), accent_color=0x7C3AED))
     await interaction.response.send_message(view=view, ephemeral=True)
 
 
