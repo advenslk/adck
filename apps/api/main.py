@@ -17,8 +17,9 @@ from apps.core.services.docker import DockerProvisioner
 from apps.core.services.groq import GroqService
 from apps.core.services.pterodactyl import PterodactylService
 from apps.api.dashboard import router as dashboard_router
+from apps.api.middleware import SecurityMiddleware
 
-logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO)); log=logging.getLogger("arvex.api")
+logging.basicConfig(level=getattr(logging,settings.log_level.upper(),logging.INFO)); log=logging.getLogger("arvex.api")
 @asynccontextmanager
 async def lifespan(app:FastAPI):
     if settings.environment=="development":
@@ -27,6 +28,7 @@ async def lifespan(app:FastAPI):
 app=FastAPI(title="ArveX Hosting API",version="0.3.0",docs_url="/docs" if settings.environment=="development" else None)
 app.include_router(dashboard_router)
 app.add_middleware(CORSMiddleware,allow_origins=settings.cors_origin_list,allow_credentials=False,allow_methods=["GET","POST","PATCH","DELETE"],allow_headers=["Authorization","Content-Type","X-Discord-Id","X-Arvex-Timestamp","X-Arvex-Signature"])
+app.add_middleware(SecurityMiddleware)
 groq=GroqService()
 @app.middleware("http")
 async def security_headers(request:Request,call_next):
