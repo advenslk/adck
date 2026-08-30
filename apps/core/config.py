@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     discord_token: str = ""
     discord_guild_id: int | None = None
+    internal_api_secret: str = "change-this-secret"
     groq_api_key: str = ""
     groq_model: str = "openai/gpt-oss-120b"
     pterodactyl_url: str = ""
