@@ -15,6 +15,7 @@ class ArveXBot(discord.Client):
         intents.members = True
         super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
+        self.invite_cache: dict[int, dict[str, int]] = {}
 
     async def setup_hook(self):
         if settings.discord_guild_id:
@@ -26,10 +27,54 @@ class ArveXBot(discord.Client):
 
     async def on_ready(self):
         log.info("Logged in as %s (%s)", self.user, self.user.id if self.user else "?")
+        for guild in self.guilds:
+            try:
+                invites = await guild.invites()
+                self.invite_cache[guild.id] = {invite.code: invite.uses or 0 for invite in invites}
+            except discord.Forbidden:
+                log.warning("Cannot read invites in guild %s; grant Manage Guild.", guild.id)
+
+    async def on_member_join(self, member: discord.Member):
+        if settings.discord_guild_id and member.guild.id != settings.discord_guild_id:
+            return
+        try:
+            invites = await member.guild.invites()
+            old = self.invite_cache.get(member.guild.id, {})
+            used = next((invite for invite in invites if (invite.uses or 0) > old.get(invite.code, 0)), None)
+            self.invite_cache[member.guild.id] = {invite.code: invite.uses or 0 for invite in invites}
+            if used and used.inviter:
+                await self.internal_post("/api/v1/internal/invites/join", {
+                    "guild_id": member.guild.id,
+                    "inviter_discord_id": used.inviter.id,
+                    "invited_discord_id": member.id,
+                    "code": used.code,
+                })
+        except Exception:
+            log.exception("Invite attribution failed for %s", member.id)
+
+    async def on_member_remove(self, member: discord.Member):
+        try:
+            await self.internal_post("/api/v1/internal/invites/leave", None, params={
+                "guild_id": member.guild.id,
+                "invited_discord_id": member.id,
+            })
+        except Exception:
+            log.exception("Invite reconciliation failed for %s", member.id)
+
+    async def internal_post(self, path: str, json=None, params=None):
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(
+                f"{settings.public_api_url}{path}",
+                headers={"X-Internal-Secret": settings.internal_api_secret},
+                json=json,
+                params=params,
+            )
+            response.raise_for_status()
+            return response.json()
 
     async def on_interaction(self, interaction: discord.Interaction):
         await super().on_interaction(interaction)
-        custom_id = getattr(interaction.data, "get", lambda *_: None)("custom_id") if interaction.data else None
+        custom_id = interaction.data.get("custom_id") if interaction.data else None
         if not custom_id or not custom_id.startswith("arvex:"):
             return
         if custom_id == "arvex:invites":
@@ -100,10 +145,7 @@ async def ai(interaction: discord.Interaction, message: str):
             headers={"X-Discord-Id": str(interaction.user.id)},
             json={"message": message},
         )
-    if response.is_success:
-        answer = response.json().get("response", "No response")
-    else:
-        answer = "AI service is currently unavailable."
+    answer = response.json().get("response", "No response") if response.is_success else "AI service is currently unavailable."
     await interaction.followup.send(answer[:4000], ephemeral=True)
 
 
