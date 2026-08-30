@@ -27,7 +27,7 @@ Discord-first hosting automation platform for invite rewards, Docker VPS provisi
 - API security headers, trusted-host validation and rate limiting are included in the security layer.
 - Invite redemption uses row locking so concurrent requests cannot double-spend the same invite balance.
 - Deployment jobs are locked with `SKIP LOCKED`, retried with a maximum attempt count, and stale worker jobs are recoverable.
-- AI is designed around allow-listed application tools; it must never receive arbitrary shell/Docker access. Groq's local tool-calling model keeps tool execution under application control. urlGroq local tool calling documentationhttps://console.groq.com/docs/tool-use/local-tool-calling
+- AI is designed around allow-listed application tools; it must never receive arbitrary shell/Docker access. Groq local tool calling keeps tool execution under application control.
 
 ## Quick start
 
