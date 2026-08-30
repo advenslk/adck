@@ -4,9 +4,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from apps.core.db import get_db
-from apps.core.models import AuditLog, Plan
 from apps.core.security import require_dashboard_token, validate_provision_limits
 from apps.core.config import settings
+from apps.core.models import AuditLog, Plan
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 class DashboardPlanIn(BaseModel):
@@ -44,3 +44,6 @@ async def disable_plan(plan_id:UUID,authorization:str|None=Header(default=None),
     auth(authorization); plan=await db.get(Plan,plan_id)
     if not plan:raise HTTPException(404,"Plan not found")
     plan.enabled=False; db.add(AuditLog(guild_id=plan.guild_id,action="dashboard.plan.disable",target=str(plan_id),data={})); await db.commit(); return {"ok":True}
+
+from apps.api.admin_extra import router as admin_extra_router
+router.include_router(admin_extra_router)
