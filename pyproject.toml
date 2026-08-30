@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "arvex-hosting-saas"
-version = "0.1.0"
+version = "0.3.0"
 description = "Discord-first hosting automation SaaS"
 requires-python = ">=3.11"
 dependencies = [
@@ -22,6 +22,9 @@ dependencies = [
   "cryptography>=43,<47",
   "alembic>=1.14,<2",
 ]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<9"]
 
 [tool.setuptools.packages.find]
 include = ["apps*"]
