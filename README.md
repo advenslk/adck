@@ -22,7 +22,8 @@ Discord-first hosting automation platform for invite rewards, Docker VPS provisi
 - Admin web access uses a server-side bearer token entered at login; no admin identity is shipped in `NEXT_PUBLIC_*` variables.
 - VPS credentials are encrypted at rest with Fernet and are excluded from normal server-list responses.
 - VPS images are allow-listed and resource limits are enforced before provisioning.
-- Customer containers are never given the Docker socket, privileged mode, or unrestricted host mounts.
+- Customer containers never receive the Docker socket, privileged mode, or unrestricted host mounts.
+- The worker does not receive the raw Docker socket; Docker API access is routed through a restricted socket proxy with exec, volumes, swarm, events and system APIs disabled.
 - Docker VPS containers drop all capabilities except the minimum required for the SSH daemon and use `no-new-privileges`.
 - API security headers, trusted-host validation and rate limiting are included in the security layer.
 - Invite redemption uses row locking so concurrent requests cannot double-spend the same invite balance.
