@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from uuid import UUID
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -128,10 +129,7 @@ async def move_plan(plan_id: UUID, payload: MovePlanIn, x_discord_id: int = Head
     step = -1 if payload.direction == "up" else 1
     result = await db.execute(select(Plan).where(Plan.guild_id == plan.guild_id).order_by(Plan.sort_order, Plan.created_at))
     plans = list(result.scalars())
-    try:
-        index = plans.index(plan)
-    except ValueError:
-        raise HTTPException(404, "Plan not found")
+    index = plans.index(plan)
     target = index + step
     if target < 0 or target >= len(plans):
         return {"ok": True, "moved": False}
@@ -223,7 +221,7 @@ async def server_action(server_id: UUID, action: str, user: User = Depends(curre
     server = await db.get(Server, server_id)
     if not server or server.user_id != user.id:
         raise HTTPException(404, "Server not found")
-    if server.status in {"provisioning", "failed"}:
+    if server.status in {"provisioning", "failed", "deleted"}:
         raise HTTPException(409, f"Server is {server.status}")
     if server.kind == "vps":
         if not server.provider_id:
@@ -234,24 +232,19 @@ async def server_action(server_id: UUID, action: str, user: User = Depends(curre
         elif action == "stop":
             await asyncio.to_thread(provisioner.stop, server.provider_id)
         elif action == "start":
-            await asyncio.to_thread(provisioner.client.containers.get(server.provider_id).start)
+            await asyncio.to_thread(lambda: provisioner.client.containers.get(server.provider_id).start())
         elif action == "delete":
             await asyncio.to_thread(provisioner.remove, server.provider_id)
     elif server.kind == "game":
         ptero = PterodactylService()
-        provider_id = int(server.provider_id or 0)
-        if action == "stop":
-            await ptero._request("POST", f"/api/client/servers/{server.provider_id}/power", json={"signal": "stop"})
-        elif action == "restart":
-            await ptero._request("POST", f"/api/client/servers/{server.provider_id}/power", json={"signal": "restart"})
-        elif action == "start":
-            await ptero._request("POST", f"/api/client/servers/{server.provider_id}/power", json={"signal": "start"})
+        if action in {"start", "stop", "restart"}:
+            await ptero.power(server.provider_id or "", action)
         elif action == "delete":
-            await ptero.delete_server(provider_id)
+            await ptero.delete_server(int(server.provider_id or 0))
     if action == "delete":
         server.status = "deleted"
     else:
-        server.status = "running" if action == "start" or action == "restart" else "stopped"
+        server.status = "running" if action in {"start", "restart"} else "stopped"
     await db.commit()
     return {"ok": True, "server_id": str(server.id), "status": server.status}
 
