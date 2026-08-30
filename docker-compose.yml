@@ -21,6 +21,27 @@ services:
     ports: ["127.0.0.1:6379:6379"]
     volumes: ["arvex-redis:/data"]
 
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:v0.5.0
+    restart: unless-stopped
+    environment:
+      CONTAINERS: "1"
+      IMAGES: "1"
+      NETWORKS: "1"
+      VOLUMES: "1"
+      INFO: "1"
+      VERSION: "1"
+      PING: "1"
+      POST: "1"
+      EXEC: "0"
+      SWARM: "0"
+      SERVICES: "0"
+      SECRETS: "0"
+      SYSTEM: "0"
+      EVENTS: "0"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
   api:
     build: .
     restart: unless-stopped
@@ -47,9 +68,10 @@ services:
     restart: unless-stopped
     command: python -m apps.worker.main
     env_file: .env
-    depends_on: [postgres, redis]
+    environment:
+      DOCKER_HOST: tcp://docker-socket-proxy:2375
+    depends_on: [postgres, redis, docker-socket-proxy]
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
       - arvex-vps:/srv/arvex/vps
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]
