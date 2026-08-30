@@ -1,50 +1,71 @@
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: arvex
       POSTGRES_USER: arvex
-      POSTGRES_PASSWORD: change-me
-    ports: ["5432:5432"]
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    ports: ["127.0.0.1:5432:5432"]
     volumes: ["arvex-postgres:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arvex -d arvex"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
-    ports: ["6379:6379"]
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000"]
+    ports: ["127.0.0.1:6379:6379"]
+    volumes: ["arvex-redis:/data"]
 
   api:
     build: .
-    command: uvicorn apps.api.main:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+    command: uvicorn apps.api.main:app --host 0.0.0.0 --port 8000 --proxy-headers
     env_file: .env
-    depends_on: [postgres, redis]
-    ports: ["8000:8000"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_started}
+    ports: ["127.0.0.1:8000:8000"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
 
   bot:
     build: .
+    restart: unless-stopped
     command: python -m apps.bot.main
     env_file: .env
     depends_on: [api]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
 
   worker:
     build: .
+    restart: unless-stopped
     command: python -m apps.worker.main
     env_file: .env
     depends_on: [postgres, redis]
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - arvex-vps:/srv/arvex/vps
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
 
   web:
     image: node:22-alpine
+    restart: unless-stopped
     working_dir: /app
     command: sh -c "npm install && npm run dev"
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000
-    volumes:
-      - ./apps/web:/app
-    ports: ["3000:3000"]
+    volumes: ["./apps/web:/app"]
+    ports: ["127.0.0.1:3000:3000"]
     depends_on: [api]
 
 volumes:
   arvex-postgres:
+  arvex-redis:
   arvex-vps:
