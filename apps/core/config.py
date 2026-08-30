@@ -1,7 +1,6 @@
 from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 class Settings(BaseSettings):
     app_name: str = "ArveX Hosting"
     environment: str = "development"
@@ -12,6 +11,7 @@ class Settings(BaseSettings):
     discord_guild_id: int | None = None
     internal_api_secret: str = ""
     admin_dashboard_token: str = ""
+    credential_encryption_key: str = ""
     groq_api_key: str = ""
     groq_model: str = "openai/gpt-oss-120b"
     pterodactyl_url: str = ""
@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     docker_network: str = "arvex-vps"
     vps_image: str = "ubuntu:24.04"
     vps_rootfs: str = "/srv/arvex/vps"
+    vps_public_host: str = "127.0.0.1"
     allowed_vps_images: str = "ubuntu:24.04"
     max_vps_ram_mb: int = 65536
     max_vps_cpu_percent: int = 1200
@@ -34,23 +35,13 @@ class Settings(BaseSettings):
     admin_user_ids: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
-
     @property
-    def admin_ids(self) -> set[int]:
-        return {int(x.strip()) for x in self.admin_user_ids.split(",") if x.strip().isdigit()}
-
+    def admin_ids(self) -> set[int]: return {int(x.strip()) for x in self.admin_user_ids.split(",") if x.strip().isdigit()}
     @property
-    def allowed_images(self) -> set[str]:
-        return {x.strip() for x in self.allowed_vps_images.split(",") if x.strip()}
-
+    def allowed_images(self) -> set[str]: return {x.strip() for x in self.allowed_vps_images.split(",") if x.strip()}
     @property
-    def cors_origin_list(self) -> list[str]:
-        return [x.strip() for x in self.cors_origins.split(",") if x.strip()]
-
+    def cors_origin_list(self) -> list[str]: return [x.strip() for x in self.cors_origins.split(",") if x.strip()]
 
 @lru_cache
-def get_settings() -> Settings:
-    return Settings()
-
-
+def get_settings() -> Settings: return Settings()
 settings = get_settings()
