@@ -2,6 +2,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import time
+from cryptography.fernet import Fernet, InvalidToken
 from fastapi import Header, HTTPException, Request
 from apps.core.config import settings
 MAX_CLOCK_SKEW = 60
@@ -29,6 +30,15 @@ def require_dashboard_token(authorization: str | None) -> None:
     if not settings.admin_dashboard_token or not authorization: raise HTTPException(401, "Admin authentication required")
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer" or not hmac.compare_digest(token, settings.admin_dashboard_token): raise HTTPException(403, "Invalid admin credentials")
+
+def credential_cipher() -> Fernet:
+    if not settings.credential_encryption_key: raise RuntimeError("CREDENTIAL_ENCRYPTION_KEY is required")
+    return Fernet(settings.credential_encryption_key.encode())
+
+def encrypt_secret(value: str) -> str: return credential_cipher().encrypt(value.encode()).decode()
+def decrypt_secret(value: str) -> str:
+    try: return credential_cipher().decrypt(value.encode()).decode()
+    except InvalidToken as exc: raise RuntimeError("Stored credential cannot be decrypted") from exc
 
 def validate_provision_limits(ram_mb: int, cpu_percent: int, disk_mb: int) -> None:
     if not 256 <= ram_mb <= settings.max_vps_ram_mb: raise HTTPException(400, "RAM is outside platform limits")
