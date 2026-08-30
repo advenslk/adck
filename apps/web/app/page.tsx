@@ -1,35 +1,29 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-
+import { useEffect, useMemo, useState } from 'react';
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-const ADMIN = process.env.NEXT_PUBLIC_ADMIN_ID || '';
 
-export default function Home() {
-  const [data, setData] = useState<Record<string, number> | null>(null);
-  const [error, setError] = useState('');
+type Plan = { id:string; guild_id:number; name:string; description:string; kind:string; required_invites:number; ram_mb:number; cpu_percent:number; disk_mb:number; image?:string|null; egg_id?:number|null; docker_image?:string|null; enabled:boolean; sort_order:number; config:Record<string,unknown> };
 
-  useEffect(() => {
-    fetch(`${API}/api/v1/admin/overview`, { headers: { 'X-Discord-Id': ADMIN } })
-      .then(async r => { if (!r.ok) throw new Error('Admin API unavailable'); return r.json(); })
-      .then(setData).catch(e => setError(e.message));
-  }, []);
+type Form = Omit<Plan,'id'>;
+const emptyForm:Form={guild_id:0,name:'',description:'',kind:'vps',required_invites:1,ram_mb:4096,cpu_percent:200,disk_mb:20480,image:'ubuntu:24.04',egg_id:null,docker_image:'ubuntu:24.04',enabled:true,sort_order:0,config:{}};
 
-  const cards = [
-    ['Users', data?.users ?? 0], ['Servers', data?.servers ?? 0],
-    ['Active Plans', data?.plans ?? 0], ['Deployments', data?.active_deployments ?? 0],
-  ];
-
-  return <main className="shell">
-    <aside><div className="brand">ARVEX<span>CONTROL</span></div><nav>
-      <a className="active">Overview</a><a>Users</a><a>Invite Plans</a><a>VPS Nodes</a><a>Pterodactyl</a><a>Servers</a><a>Deployments</a><a>AI</a><a>Audit Logs</a><a>Settings</a>
-    </nav></aside>
-    <section className="content">
-      <header><div><p className="eyebrow">HOSTING AUTOMATION SAAS</p><h1>Control Center</h1></div><div className="status">● System Online</div></header>
-      {error && <div className="alert">{error}. Configure NEXT_PUBLIC_API_URL and an admin Discord ID.</div>}
-      <div className="grid">{cards.map(([label, value]) => <div className="card" key={label as string}><small>{label}</small><strong>{value}</strong><span>Live metric</span></div>)}</div>
-      <div className="panel"><div><h2>Deployment pipeline</h2><p>Discord → API → Queue → Docker / Pterodactyl → DM</p></div><div className="pipeline"><i>Discord</i><b>→</b><i>API</i><b>→</b><i>Worker</i><b>→</b><i>Provider</i><b>→</b><i>Ready</i></div></div>
-      <div className="two"><div className="panel"><h2>Invite system</h2><p>Create, edit, disable and reorder plans without changing bot code.</p><button>Manage Plans</button></div><div className="panel"><h2>AI Copilot</h2><p>Groq-powered support with allow-listed infrastructure tools.</p><button>Configure AI</button></div></div>
-    </section>
-  </main>;
+export default function Home(){
+  const [token,setToken]=useState(''); const [input,setInput]=useState(''); const [data,setData]=useState<any>(null); const [plans,setPlans]=useState<Plan[]>([]); const [audit,setAudit]=useState<any[]>([]); const [tab,setTab]=useState('Overview'); const [form,setForm]=useState<Form>(emptyForm); const [editing,setEditing]=useState<string|null>(null); const [error,setError]=useState(''); const [loading,setLoading]=useState(false);
+  const authed=Boolean(token);
+  const headers=useMemo(()=>({Authorization:`Bearer ${token}`,'Content-Type':'application/json'}),[token]);
+  async function api(path:string,init:RequestInit={}){ const r=await fetch(`${API}${path}`,{...init,headers:{...headers,...(init.headers||{})}}); if(!r.ok) throw new Error((await r.json().catch(()=>({detail:r.statusText}))).detail||r.statusText); return r.json(); }
+  async function refresh(){ if(!token)return; setLoading(true); setError(''); try{const [o,p,a]=await Promise.all([api('/api/v1/dashboard/overview'),api('/api/v1/dashboard/plans'),api('/api/v1/dashboard/audit?limit=100')]);setData(o);setPlans(p);setAudit(a);}catch(e:any){setError(e.message);setToken('');sessionStorage.removeItem('arvex_admin_token')}finally{setLoading(false)} }
+  useEffect(()=>{const t=sessionStorage.getItem('arvex_admin_token');if(t){setToken(t);}},[]); useEffect(()=>{if(token)refresh()},[token]);
+  async function login(){try{setToken(input);sessionStorage.setItem('arvex_admin_token',input);setError('');}catch{setError('Login failed')}}
+  async function savePlan(){try{await api(editing?`/api/v1/dashboard/plans/${editing}`:'/api/v1/dashboard/plans',{method:editing?'PATCH':'POST',body:JSON.stringify(form)});setEditing(null);setForm(emptyForm);await refresh()}catch(e:any){setError(e.message)}}
+  async function move(id:string,direction:'up'|'down'){try{await api(`/api/v1/dashboard/plans/${id}/move`,{method:'POST',body:JSON.stringify({direction})});await refresh()}catch(e:any){setError(e.message)}}
+  async function disable(id:string){if(!confirm('Disable this plan?'))return;try{await api(`/api/v1/dashboard/plans/${id}`,{method:'DELETE'});await refresh()}catch(e:any){setError(e.message)}}
+  if(!authed)return <main className="login"><div className="loginCard"><div className="brand">ARVEX<span>CONTROL</span></div><p className="eyebrow">SECURE ADMIN ACCESS</p><h1>Control Center</h1><p>Enter the dashboard token configured on the API server.</p><input value={input} onChange={e=>setInput(e.target.value)} type="password" placeholder="Admin dashboard token" onKeyDown={e=>e.key==='Enter'&&login()}/><button onClick={login}>Unlock Dashboard</button>{error&&<div className="alert">{error}</div>}</div></main>;
+  const cards=[['Users',data?.users??0],['Servers',data?.servers??0],['Active Plans',data?.plans??0],['Deployments',data?.active_deployments??0]];
+  return <main className="shell"><aside><div className="brand">ARVEX<span>CONTROL</span></div><nav>{['Overview','Invite Plans','Audit Logs'].map(x=><a key={x} className={tab===x?'active':''} onClick={()=>setTab(x)}>{x}</a>)}</nav><button className="logout" onClick={()=>{setToken('');sessionStorage.removeItem('arvex_admin_token')}}>Lock</button></aside><section className="content"><header><div><p className="eyebrow">HOSTING AUTOMATION SAAS</p><h1>{tab}</h1></div><div className="status">● {loading?'Refreshing':'Protected'}</div></header>{error&&<div className="alert">{error}</div>}
+  {tab==='Overview'&&<><div className="grid">{cards.map(([label,value])=><div className="card" key={label as string}><small>{label}</small><strong>{value as number}</strong><span>Live metric</span></div>)}</div><div className="panel"><h2>Secure deployment pipeline</h2><p>Discord signed request → API authorization → PostgreSQL transaction → queued worker → isolated Docker/Pterodactyl → private DM.</p><div className="pipeline"><i>Discord</i><b>→</b><i>HMAC API</i><b>→</b><i>Queue</i><b>→</b><i>Provider</i><b>→</b><i>DM</i></div></div></>}
+  {tab==='Invite Plans'&&<><div className="panel"><div className="toolbar"><h2>{editing?'Edit Plan':'Create Plan'}</h2><button onClick={()=>{setEditing(null);setForm(emptyForm)}}>New Plan</button></div><div className="formgrid">{[['guild_id','Guild ID','number'],['name','Plan Name','text'],['required_invites','Invites','number'],['ram_mb','RAM MB','number'],['cpu_percent','CPU %','number'],['disk_mb','Disk MB','number'],['image','Image','text'],['docker_image','Docker Image','text'],['egg_id','Egg ID','number'],['sort_order','Order','number']].map(([key,label,type])=><label key={key}>{label}<input type={type} value={(form as any)[key]??''} onChange={e=>setForm({...form,[key]:type==='number'?(e.target.value===''?null:Number(e.target.value)):e.target.value})}/></label>)}<label>Description<textarea value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></label><label>Kind<select value={form.kind} onChange={e=>setForm({...form,kind:e.target.value})}><option value="vps">Docker VPS</option><option value="game">Pterodactyl Game</option></select></label></div><div className="actions"><button onClick={savePlan}>{editing?'Save Changes':'Create Plan'}</button>{editing&&<button className="secondary" onClick={()=>{setEditing(null);setForm(emptyForm)}}>Cancel</button>}</div></div><div className="panel"><h2>Plans</h2>{plans.length===0?<p>No plans.</p>:plans.map((p,i)=><div className="planrow" key={p.id}><div><b>{p.name}</b><span>{p.required_invites} invites · {Math.round(p.ram_mb/1024)}GB · {Math.max(1,Math.round(p.cpu_percent/100))} vCPU · {Math.round(p.disk_mb/1024)}GB · {p.kind}</span></div><div className="rowbuttons"><button onClick={()=>move(p.id,'up')} disabled={i===0}>↑</button><button onClick={()=>move(p.id,'down')} disabled={i===plans.length-1}>↓</button><button onClick={()=>{setEditing(p.id);setForm({...p})}}>Edit</button><button className="danger" onClick={()=>disable(p.id)}>Disable</button></div></div>)}</div></>}
+  {tab==='Audit Logs'&&<div className="panel"><h2>Recent security/audit events</h2>{audit.map(x=><div className="audit" key={x.id}><b>{x.action}</b><span>{x.target}</span><small>{new Date(x.created_at).toLocaleString()}</small></div>)}</div>}
+  </section></main>
 }
