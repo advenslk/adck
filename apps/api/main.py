@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from apps.core.config import settings
 from apps.core.db import Base, engine, get_db
-from apps.core.models import AuditLog, DeploymentJob, Guild, Plan, Server, User
+from apps.core.models import AuditLog, DeploymentJob, InviteEvent, Plan, Server, User
 from apps.core.services.groq import GroqService
 
 
@@ -37,7 +37,7 @@ class PlanIn(BaseModel):
     docker_image: str | None = None
     enabled: bool = True
     sort_order: int = 0
-    config: dict = {}
+    config: dict = Field(default_factory=dict)
 
 
 class ServerCreateIn(BaseModel):
@@ -47,6 +47,13 @@ class ServerCreateIn(BaseModel):
 
 class AIIn(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
+
+
+class InviteEventIn(BaseModel):
+    guild_id: int
+    inviter_discord_id: int
+    invited_discord_id: int
+    code: str
 
 
 async def current_user(discord_id: int = Header(alias="X-Discord-Id"), db: AsyncSession = Depends(get_db)) -> User:
@@ -63,6 +70,11 @@ async def current_user(discord_id: int = Header(alias="X-Discord-Id"), db: Async
 def require_admin(discord_id: int):
     if discord_id not in settings.admin_ids:
         raise HTTPException(status_code=403, detail="Admin access required")
+
+
+def require_internal(secret: str):
+    if secret != settings.internal_api_secret:
+        raise HTTPException(status_code=401, detail="Invalid internal credential")
 
 
 @app.get("/health")
@@ -111,6 +123,40 @@ async def delete_plan(plan_id: UUID, x_discord_id: int = Header(alias="X-Discord
     db.add(AuditLog(actor_discord_id=x_discord_id, guild_id=plan.guild_id, action="plan.disable", target=str(plan_id), data={}))
     await db.commit()
     return {"ok": True}
+
+
+@app.post("/api/v1/internal/invites/join")
+async def invite_join(payload: InviteEventIn, x_internal_secret: str = Header(alias="X-Internal-Secret"), db: AsyncSession = Depends(get_db)):
+    require_internal(x_internal_secret)
+    existing = await db.execute(select(InviteEvent).where(InviteEvent.guild_id == payload.guild_id, InviteEvent.invited_discord_id == payload.invited_discord_id))
+    if existing.scalar_one_or_none():
+        return {"ok": True, "counted": False, "reason": "already-tracked"}
+    inviter = await db.execute(select(User).where(User.discord_id == payload.inviter_discord_id))
+    user = inviter.scalar_one_or_none()
+    if not user:
+        user = User(discord_id=payload.inviter_discord_id, username=f"discord-{payload.inviter_discord_id}")
+        db.add(user)
+        await db.flush()
+    user.invite_balance += 1
+    db.add(InviteEvent(**payload.model_dump(), valid=True))
+    await db.commit()
+    return {"ok": True, "counted": True, "invite_balance": user.invite_balance}
+
+
+@app.post("/api/v1/internal/invites/leave")
+async def invite_leave(guild_id: int, invited_discord_id: int, x_internal_secret: str = Header(alias="X-Internal-Secret"), db: AsyncSession = Depends(get_db)):
+    require_internal(x_internal_secret)
+    result = await db.execute(select(InviteEvent).where(InviteEvent.guild_id == guild_id, InviteEvent.invited_discord_id == invited_discord_id, InviteEvent.valid.is_(True)))
+    event = result.scalar_one_or_none()
+    if not event:
+        return {"ok": True, "adjusted": False}
+    event.valid = False
+    user_result = await db.execute(select(User).where(User.discord_id == event.inviter_discord_id))
+    inviter = user_result.scalar_one_or_none()
+    if inviter:
+        inviter.invite_balance = max(0, inviter.invite_balance - 1)
+    await db.commit()
+    return {"ok": True, "adjusted": True}
 
 
 @app.get("/api/v1/me")
