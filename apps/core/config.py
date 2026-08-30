@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     groq_model: str = "openai/gpt-oss-120b"
     pterodactyl_url: str = ""
     pterodactyl_api_key: str = ""
+    pterodactyl_client_api_key: str = ""
     docker_node_name: str = "local-01"
     docker_network: str = "arvex-vps"
     vps_image: str = "ubuntu:24.04"
