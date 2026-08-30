@@ -6,16 +6,29 @@ from apps.core.config import settings
 class PterodactylService:
     def __init__(self):
         self.base = settings.pterodactyl_url.rstrip("/")
-        self.headers = {
+        self.application_headers = {
             "Authorization": f"Bearer {settings.pterodactyl_api_key}",
+            "Accept": "Application/vnd.pterodactyl.v1+json",
+            "Content-Type": "application/json",
+        }
+        self.client_headers = {
+            "Authorization": f"Bearer {settings.pterodactyl_client_api_key}",
             "Accept": "Application/vnd.pterodactyl.v1+json",
             "Content-Type": "application/json",
         }
 
     async def _request(self, method: str, path: str, **kwargs) -> dict[str, Any]:
         if not self.base or not settings.pterodactyl_api_key:
-            raise RuntimeError("Pterodactyl is not configured")
-        async with httpx.AsyncClient(base_url=self.base, headers=self.headers, timeout=30) as client:
+            raise RuntimeError("Pterodactyl application API is not configured")
+        async with httpx.AsyncClient(base_url=self.base, headers=self.application_headers, timeout=30) as client:
+            response = await client.request(method, path, **kwargs)
+            response.raise_for_status()
+            return response.json() if response.content else {}
+
+    async def _client_request(self, method: str, path: str, **kwargs) -> dict[str, Any]:
+        if not self.base or not settings.pterodactyl_client_api_key:
+            raise RuntimeError("Pterodactyl client API is not configured")
+        async with httpx.AsyncClient(base_url=self.base, headers=self.client_headers, timeout=30) as client:
             response = await client.request(method, path, **kwargs)
             response.raise_for_status()
             return response.json() if response.content else {}
@@ -33,6 +46,11 @@ class PterodactylService:
 
     async def get_server(self, server_id: int):
         return await self._request("GET", f"/api/application/servers/{server_id}")
+
+    async def power(self, server_identifier: str, signal: str):
+        if signal not in {"start", "stop", "restart"}:
+            raise ValueError("Invalid power signal")
+        return await self._client_request("POST", f"/api/client/servers/{server_identifier}/power", json={"signal": signal})
 
     async def suspend_server(self, server_id: int):
         return await self._request("POST", f"/api/application/servers/{server_id}/suspend")
