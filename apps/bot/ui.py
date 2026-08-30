@@ -1,6 +1,6 @@
 import httpx
 import discord
-from discord import app_commands, ui
+from discord import ui
 from apps.core.config import settings
 
 
@@ -69,3 +69,52 @@ class PlanSelectView(ui.LayoutView):
         row.add_item(select)
         self.container.add_item(row)
         self.add_item(self.container)
+
+
+class ServerManageView(ui.LayoutView):
+    def __init__(self, user_id: int, servers: list[dict]):
+        super().__init__(timeout=240)
+        self.user_id = user_id
+        self.server_map = {str(s["id"]): s for s in servers}
+        self.container = ui.Container(
+            ui.TextDisplay("# 🖥️ My Servers\nSelect a server, then choose a lifecycle action."),
+            accent_color=0x7C3AED,
+        )
+        select_row = ui.ActionRow()
+        select = ui.Select(placeholder="Select a server", min_values=1, max_values=1)
+        for server in servers[:25]:
+            select.add_option(label=server["name"][:100], description=f"{server['status']} • {server['kind']}", value=str(server["id"]))
+        select_row.add_item(select)
+        self.container.add_item(select_row)
+        action_row = ui.ActionRow()
+        for label, action, style in [("▶ Start", "start", discord.ButtonStyle.success), ("⏹ Stop", "stop", discord.ButtonStyle.secondary), ("🔄 Restart", "restart", discord.ButtonStyle.primary), ("🗑 Delete", "delete", discord.ButtonStyle.danger)]:
+            button = ui.Button(label=label, style=style, custom_id=f"server-action:{action}")
+            async def callback(interaction: discord.Interaction, button=button, action=action):
+                if interaction.user.id != self.user_id:
+                    await interaction.response.send_message("This panel belongs to another user.", ephemeral=True)
+                    return
+                if not select.values:
+                    await interaction.response.send_message("Select a server first.", ephemeral=True)
+                    return
+                server_id = select.values[0]
+                if action == "delete":
+                    await interaction.response.send_message("⚠️ Delete is permanent. Run the action again from your panel after confirming your intent.", ephemeral=True)
+                    return
+                await interaction.response.defer(ephemeral=True)
+                async with httpx.AsyncClient(timeout=30) as client:
+                    response = await client.post(f"{settings.public_api_url}/api/v1/servers/{server_id}/action", params={"action": action}, headers={"X-Discord-Id": str(interaction.user.id)})
+                if response.is_success:
+                    await interaction.followup.send(f"✅ `{action}` request completed.", ephemeral=True)
+                else:
+                    detail = response.json().get("detail", "Action failed") if response.content else "Action failed"
+                    await interaction.followup.send(f"❌ {detail}", ephemeral=True)
+            button.callback = callback
+            action_row.add_item(button)
+        self.container.add_item(action_row)
+        self.add_item(self.container)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("This panel belongs to another user.", ephemeral=True)
+            return False
+        return True
