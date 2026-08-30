@@ -39,13 +39,12 @@ services:
       SECRETS: "0"
       SYSTEM: "0"
       EVENTS: "0"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+    volumes: ["/var/run/docker.sock:/var/run/docker.sock:ro"]
 
   api:
     build: .
     restart: unless-stopped
-    command: uvicorn apps.api.main:app --host 0.0.0.0 --port 8000 --proxy-headers
+    command: sh -c "python scripts/bootstrap_db.py && uvicorn apps.api.main:app --host 0.0.0.0 --port 8000 --proxy-headers"
     env_file: .env
     depends_on:
       postgres: {condition: service_healthy}
@@ -71,8 +70,7 @@ services:
     environment:
       DOCKER_HOST: tcp://docker-socket-proxy:2375
     depends_on: [postgres, redis, docker-socket-proxy]
-    volumes:
-      - arvex-vps:/srv/arvex/vps
+    volumes: ["arvex-vps:/srv/arvex/vps"]
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]
 
